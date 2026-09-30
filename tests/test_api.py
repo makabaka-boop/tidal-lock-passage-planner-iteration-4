@@ -143,6 +143,92 @@ def test_probe_bad_voyage_shape(client, make_calendar):
     assert client.post("/voyages/probe", json=base).status_code == 422
 
 
+def _compare_body(old_id, new_id, gate_count=1):
+    return {
+        "old_calendar_id": old_id,
+        "new_calendar_id": new_id,
+        "gates": [f"G{i + 1}" for i in range(gate_count)],
+        "legs": [5] * (gate_count - 1),
+        "max_waits": [5] * gate_count,
+        "search_start": 0,
+        "search_end": 50,
+    }
+
+
+def test_compare_two_calendars_returns_sources_and_segments(
+    client, make_calendar
+):
+    # 旧版 G1 [10,20)，新版 [15,25)；可行区间即窗口本身。
+    old_id = make_calendar([[10, 20]])
+    new_id = make_calendar([[15, 25]])
+    resp = client.post("/voyages/compare", json=_compare_body(old_id, new_id))
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "old_intervals": [[10, 20]],
+        "new_intervals": [[15, 25]],
+        "segments": [
+            [10, 15, "仅旧版可行"],
+            [15, 20, "两版均可行"],
+            [20, 25, "仅新版可行"],
+        ],
+    }
+
+
+def test_compare_empty_feasible_sets(client, make_calendar):
+    old_id = make_calendar([[100, 110]])
+    new_id = make_calendar([[120, 130]])
+    resp = client.post("/voyages/compare", json=_compare_body(old_id, new_id))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["old_intervals"] == []
+    assert body["new_intervals"] == []
+    assert body["segments"] == []
+
+
+def test_compare_swapped_calendars(client, make_calendar):
+    old_id = make_calendar([[10, 20]])
+    new_id = make_calendar([[15, 25]])
+    first = client.post(
+        "/voyages/compare", json=_compare_body(old_id, new_id)
+    ).json()["segments"]
+    swapped_resp = client.post(
+        "/voyages/compare", json=_compare_body(new_id, old_id)
+    )
+    swapped = swapped_resp.json()["segments"]
+    assert swapped == [
+        [10, 15, "仅新版可行"],
+        [15, 20, "两版均可行"],
+        [20, 25, "仅旧版可行"],
+    ]
+    assert first[0][2] != swapped[0][2]
+
+
+def test_compare_missing_calendar_is_404(client, make_calendar):
+    cid = make_calendar([[10, 20]])
+    resp = client.post("/voyages/compare", json=_compare_body(cid, "missing"))
+    assert resp.status_code == 404
+    resp = client.post("/voyages/compare", json=_compare_body("missing", cid))
+    assert resp.status_code == 404
+
+
+def test_compare_missing_gate_rejects_entire_request(client, make_calendar):
+    old_id = make_calendar([[10, 20]], [[20, 30]])
+    new_id = make_calendar([[10, 20]])  # 缺 G2
+    resp = client.post(
+        "/voyages/compare", json=_compare_body(old_id, new_id, gate_count=2)
+    )
+    assert resp.status_code == 422
+    assert "intervals" not in resp.text and "segments" not in resp.text
+
+
+def test_compare_is_read_only(client, make_calendar):
+    old_id = make_calendar([[10, 20]])
+    new_id = make_calendar([[15, 25]])
+    before = client.get(f"/calendars/{old_id}").json()
+    client.post("/voyages/compare", json=_compare_body(old_id, new_id))
+    assert client.get(f"/calendars/{old_id}").json() == before
+
+
 def test_adopt_plan_and_get_witnesses(client, make_calendar):
     cid = make_calendar([[10, 20]], [[25, 35]])
     # G1 [10,20)，航行 5，G2 [25,35)，各允许等待 5

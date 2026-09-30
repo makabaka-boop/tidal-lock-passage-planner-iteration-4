@@ -83,7 +83,43 @@ DATABASE_URL="sqlite://" python3 -m pytest -q
 - 无解：`{"intervals": []}`。
 - 航程引用日历中不存在的闸门：422；日历不存在：404。
 
-### 3. 选定时刻并采纳 `POST /plans`（201 / 409）
+### 3. 只读比较两份日历 `POST /voyages/compare`（200）
+
+输入两份既存日历与同一航程、等待上限及搜索区间，服务先分别按同一套
+半开窗口规则求可行出发区间，再把整数秒时间轴切成最大连续差异片段：
+
+```json
+{
+  "old_calendar_id": "<旧版日历 ID>",
+  "new_calendar_id": "<新版日历 ID>",
+  "gates": ["G1"],
+  "legs": [],
+  "max_waits": [3],
+  "search_start": 0,
+  "search_end": 50
+}
+```
+
+响应保留两份来源区间，便于调用方复核：
+
+```json
+{
+  "old_intervals": [[7, 20]],
+  "new_intervals": [[10, 25]],
+  "segments": [
+    [7, 10, "仅旧版可行"],
+    [10, 20, "两版均可行"],
+    [20, 25, "仅新版可行"]
+  ]
+}
+```
+
+片段同样是左闭右开整数区间；两版均不可行的空隙不输出。只有标签相同且
+端点相接的片段才会合并，跨越不可行空隙不会合并。任一日历损坏、航程数据
+非法或航程引用缺闸时，整个请求返回 422，不返回一半结果；该接口只读，
+不会创建或改写方案。任一日历 ID 不存在时返回 404。
+
+### 4. 选定时刻并采纳 `POST /plans`（201 / 409）
 
 ```json
 {
@@ -112,7 +148,7 @@ DATABASE_URL="sqlite://" python3 -m pytest -q
 （`arrival + max_wait`）及原因（`NO_OPEN_WINDOW` / `WAIT_EXCEEDED`）。
 `GET /plans/{id}` 可读回方案。
 
-### 4. 在新日历上重放方案 `POST /plans/{plan_id}/replay/{new_calendar_id}`
+### 5. 在新日历上重放方案 `POST /plans/{plan_id}/replay/{new_calendar_id}`
 
 只读重放，**绝不改写原方案**。成功重放：
 

@@ -100,6 +100,33 @@ class VoyageIn(StrictModel):
         return self
 
 
+class VoyageCompareIn(StrictModel):
+    old_calendar_id: str
+    new_calendar_id: str
+    gates: list[str] = Field(min_length=1, max_length=MAX_GATES)
+    legs: list[int] = Field(min_length=0, max_length=MAX_GATES - 1)
+    max_waits: list[int] = Field(min_length=0, max_length=MAX_GATES)
+    search_start: int = Field(ge=0, le=MAX_TIME)
+    search_end: int = Field(ge=0, le=MAX_TIME)
+
+    @model_validator(mode="after")
+    def _shape_ok(self) -> "VoyageCompareIn":
+        n = len(self.gates)
+        if len(set(self.gates)) != n:
+            raise ValueError("航程闸门必须互异")
+        if len(self.legs) != n - 1:
+            raise ValueError("legs 长度必须为闸门数 - 1")
+        if len(self.max_waits) != n:
+            raise ValueError("max_waits 长度必须等于闸门数")
+        if any(x < 0 or x > MAX_TIME for x in self.legs):
+            raise ValueError("航行时长必须在 [0, 10^12] 内")
+        if any(x < 0 or x > MAX_TIME for x in self.max_waits):
+            raise ValueError("最大等待时长必须在 [0, 10^12] 内")
+        if self.search_start >= self.search_end:
+            raise ValueError("出发搜索区间必须满足 start < end")
+        return self
+
+
 class PlanIn(StrictModel):
     calendar_id: str
     gates: list[str] = Field(min_length=1, max_length=MAX_GATES)

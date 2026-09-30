@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from . import integrity, scheduling
 from .database import CalendarRow, GateRow, PlanRow
-from .schemas import CalendarIn, PlanIn, VoyageIn
+from .schemas import CalendarIn, PlanIn, VoyageCompareIn, VoyageIn
 
 
 def _new_id() -> str:
@@ -64,6 +64,36 @@ def probe(db: Session, voyage: VoyageIn) -> list[list[int]]:
         windows_by_gate,
         (voyage.search_start, voyage.search_end),
     )
+
+
+def compare_probe(db: Session, voyage: VoyageCompareIn) -> dict:
+    """只读比较两份日历上的同一航程。
+
+    先完整读取两份日历并核对航程引用的全部闸门；任一来源损坏或缺闸，
+    整次请求拒绝，不计算、不返回一半结果，也不写入任何方案。两份原始
+    可行区间随差异片段一起返回，供调用方复核。
+    """
+    old_stored = integrity.load_calendar(db, voyage.old_calendar_id)
+    new_stored = integrity.load_calendar(db, voyage.new_calendar_id)
+    old_windows = _windows_for_gate(old_stored, voyage.gates)
+    new_windows = _windows_for_gate(new_stored, voyage.gates)
+    search = (voyage.search_start, voyage.search_end)
+    legs = list(voyage.legs)
+    waits = list(voyage.max_waits)
+
+    old_intervals = scheduling.feasible_departures(
+        legs, waits, old_windows, search
+    )
+    new_intervals = scheduling.feasible_departures(
+        legs, waits, new_windows, search
+    )
+    return {
+        "old_intervals": old_intervals,
+        "new_intervals": new_intervals,
+        "segments": scheduling.compare_departure_intervals(
+            old_intervals, new_intervals
+        ),
+    }
 
 
 def _witnesses(gate_ids: list[str], trace: scheduling.Trace) -> list[dict]:

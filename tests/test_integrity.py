@@ -523,6 +523,29 @@ def test_legal_legacy_record_works_unchanged(client, db):
     assert client.get("/plans/legacy_plan").json()["witnesses"] == witnesses
 
 
+def test_compare_corrupt_calendar_rejects_entire_request(client, db):
+    """双日历比较的任一日历损坏时整次 422，不返回任一版区间或差异。"""
+    _seed_calendar(db, "good", [(0, "G1", [[0, 100]])])
+    _seed_calendar(db, "bad_json", [(0, "G1", "broken")])
+    body = {
+        "old_calendar_id": "bad_json",
+        "new_calendar_id": "good",
+        **VOYAGE_BODY,
+    }
+    resp = client.post("/voyages/compare", json=body)
+    _assert_anomaly(resp, integrity.CALENDAR_GATE_WINDOWS_NOT_JSON)
+    assert "old_intervals" not in resp.text
+    assert "new_intervals" not in resp.text
+    assert "segments" not in resp.text
+
+    body["old_calendar_id"] = "good"
+    body["new_calendar_id"] = "bad_json"
+    _assert_anomaly(
+        client.post("/voyages/compare", json=body),
+        integrity.CALENDAR_GATE_WINDOWS_NOT_JSON,
+    )
+
+
 def test_publish_semantics_unchanged(client):
     # 新发布日历仍走原有 422 校验，且成功后可正常读回
     resp = client.post(

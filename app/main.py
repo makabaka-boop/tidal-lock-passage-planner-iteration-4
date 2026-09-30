@@ -17,6 +17,7 @@ from .schemas import (
     PlanIn,
     PlanOut,
     ReplayResponse,
+    VoyageCompareIn,
     VoyageIn,
 )
 
@@ -87,6 +88,14 @@ def probe_voyage(
     # 响应模型重复校验：大稀疏日历下可省下数百毫秒。
     intervals = services.probe(db, voyage)
     return JSONResponse({"intervals": intervals})
+
+
+@app.post("/voyages/compare")
+def compare_voyage_calendars(
+    voyage: VoyageCompareIn, db: Session = Depends(get_db)
+) -> JSONResponse:
+    result = services.compare_probe(db, voyage)
+    return JSONResponse(result)
 
 
 @app.post("/plans", response_model=PlanOut, status_code=201)

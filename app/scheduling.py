@@ -29,6 +29,11 @@ from dataclasses import dataclass
 # 时间域为 [0, 10^12]，传播时用一个足够大的右端点作为末闸哨兵。
 INF = 10**30
 
+# 双日历比较片段的稳定标记（直接作为响应中的中文标签）。
+OLD_ONLY = "仅旧版可行"
+NEW_ONLY = "仅新版可行"
+BOTH_FEASIBLE = "两版均可行"
+
 
 @dataclass(frozen=True)
 class GateFailure:
@@ -240,6 +245,84 @@ def feasible_departures(
         if lo < hi:
             result.append([lo, hi])
     return result
+
+
+def compare_departure_intervals(
+    old_intervals: list[list[int]],
+    new_intervals: list[list[int]],
+) -> list[list[int | str]]:
+    """把两份整数秒可行区间切成按标记区分的最大连续片段。
+
+    输入和输出都使用左闭右开整数区间。同一点的标记由两份区间的逐点
+    成员关系决定；两份均不可行的空隙不输出。双指针在任一区间起点或终点
+    切换状态，因此相接片段只在端点相等时合并，跨越不可行空隙的片段不会
+    合并。
+    """
+    segments: list[list[int | str]] = []
+    i = j = 0
+    old_active = new_active = False
+    cursor: int | None = None
+
+    def label() -> str | None:
+        if old_active and new_active:
+            return BOTH_FEASIBLE
+        if old_active:
+            return OLD_ONLY
+        if new_active:
+            return NEW_ONLY
+        return None
+
+    while (
+        i < len(old_intervals)
+        or j < len(new_intervals)
+        or old_active
+        or new_active
+    ):
+        boundaries: list[int] = []
+        if old_active:
+            boundaries.append(old_intervals[i][1])
+        elif i < len(old_intervals):
+            boundaries.append(old_intervals[i][0])
+        if new_active:
+            boundaries.append(new_intervals[j][1])
+        elif j < len(new_intervals):
+            boundaries.append(new_intervals[j][0])
+        boundary = min(boundaries)
+
+        if cursor is not None and boundary > cursor:
+            current = label()
+            if current is not None:
+                if (
+                    segments
+                    and segments[-1][2] == current
+                    and segments[-1][1] == cursor
+                ):
+                    segments[-1][1] = boundary
+                else:
+                    segments.append([cursor, boundary, current])
+        cursor = boundary
+
+        if old_active and old_intervals[i][1] == boundary:
+            old_active = False
+            i += 1
+        if new_active and new_intervals[j][1] == boundary:
+            new_active = False
+            j += 1
+
+        if (
+            not old_active
+            and i < len(old_intervals)
+            and old_intervals[i][0] == boundary
+        ):
+            old_active = True
+        if (
+            not new_active
+            and j < len(new_intervals)
+            and new_intervals[j][0] == boundary
+        ):
+            new_active = True
+
+    return segments
 
 
 def forward_trace(
