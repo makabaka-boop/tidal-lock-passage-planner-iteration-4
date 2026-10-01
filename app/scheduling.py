@@ -242,6 +242,67 @@ def feasible_departures(
     return result
 
 
+# ---- 双日历探测比较 ---------------------------------------------------------
+
+# 差异片段标记：仅旧版可行 / 仅新版可行 / 两版均可行。
+DIFF_OLD_ONLY = "OLD_ONLY"
+DIFF_NEW_ONLY = "NEW_ONLY"
+DIFF_BOTH = "BOTH"
+
+
+def diff_feasible_intervals(
+    old: list[list[int]], new: list[list[int]]
+) -> list[list]:
+    """把两版可行出发区间切成最大连续差异片段（整数秒边界）。
+
+    输入均为已合并、升序、左闭右开的区间列表（:func:`feasible_departures`
+    的输出）。返回 ``[lo, hi, label]`` 三元组，label 取
+    :data:`DIFF_OLD_ONLY` / :data:`DIFF_NEW_ONLY` / :data:`DIFF_BOTH`；
+    两版均不可行的部分不输出。只有标记相同且端点相接的片段才合并。
+
+    单趟双指针扫描：片段边界只出现在两版区间端点上，扫描位置单调
+    推进、两个指针都绝不回退，总体 O(len(old) + len(new))。
+    """
+    segs: list[list] = []
+    i = j = 0
+    n_old, n_new = len(old), len(new)
+    if not n_old and not n_new:
+        return segs
+    pos = min(old[0][0] if n_old else INF, new[0][0] if n_new else INF)
+    while i < n_old or j < n_new:
+        in_old = i < n_old and old[i][0] <= pos < old[i][1]
+        in_new = j < n_new and new[j][0] <= pos < new[j][1]
+        # 下一边界：进入或离开任一版区间的最近时刻（必大于 pos）。
+        nxt = INF
+        if i < n_old:
+            bound = old[i][1] if in_old else old[i][0]
+            if bound < nxt:
+                nxt = bound
+        if j < n_new:
+            bound = new[j][1] if in_new else new[j][0]
+            if bound < nxt:
+                nxt = bound
+        if in_old or in_new:
+            if in_old and in_new:
+                label = DIFF_BOTH
+            elif in_old:
+                label = DIFF_OLD_ONLY
+            else:
+                label = DIFF_NEW_ONLY
+            # 仅同标记且端点相接的片段才并段。
+            if segs and segs[-1][2] == label and segs[-1][1] == pos:
+                segs[-1][1] = nxt
+            else:
+                segs.append([pos, nxt, label])
+        pos = nxt
+        # 越过已在 pos 处结束的区间（各列表内区间互不重叠，指针单调）。
+        while i < n_old and old[i][1] <= pos:
+            i += 1
+        while j < n_new and new[j][1] <= pos:
+            j += 1
+    return segs
+
+
 def forward_trace(
     departure: int,
     legs: list[int],

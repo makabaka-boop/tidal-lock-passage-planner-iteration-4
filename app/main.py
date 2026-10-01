@@ -13,6 +13,7 @@ from .database import SessionLocal, init_db
 from .schemas import (
     CalendarIn,
     CalendarOut,
+    CompareProbeIn,
     GateOut,
     PlanIn,
     PlanOut,
@@ -87,6 +88,15 @@ def probe_voyage(
     # 响应模型重复校验：大稀疏日历下可省下数百毫秒。
     intervals = services.probe(db, voyage)
     return JSONResponse({"intervals": intervals})
+
+
+@app.post("/voyages/probe-compare")
+def probe_compare_voyage(
+    payload: CompareProbeIn, db: Session = Depends(get_db)
+) -> JSONResponse:
+    # 与 /voyages/probe 同理：区间与差异片段由核心算法直接产出，
+    # 跳过响应模型重复校验。只读接口，不新增方案、不改写任何记录。
+    return JSONResponse(services.probe_compare(db, payload))
 
 
 @app.post("/plans", response_model=PlanOut, status_code=201)

@@ -74,6 +74,29 @@ class CalendarOut(BaseModel):
     gates: list[GateOut]
 
 
+def _check_voyage_shape(
+    gates: list[str],
+    legs: list[int],
+    max_waits: list[int],
+    search_start: int,
+    search_end: int,
+) -> None:
+    """航程形状整版校验（探测与双日历比较共用同一套约束）。"""
+    n = len(gates)
+    if len(set(gates)) != n:
+        raise ValueError("航程闸门必须互异")
+    if len(legs) != n - 1:
+        raise ValueError("legs 长度必须为闸门数 - 1")
+    if len(max_waits) != n:
+        raise ValueError("max_waits 长度必须等于闸门数")
+    if any(x < 0 or x > MAX_TIME for x in legs):
+        raise ValueError("航行时长必须在 [0, 10^12] 内")
+    if any(x < 0 or x > MAX_TIME for x in max_waits):
+        raise ValueError("最大等待时长必须在 [0, 10^12] 内")
+    if search_start >= search_end:
+        raise ValueError("出发搜索区间必须满足 start < end")
+
+
 class VoyageIn(StrictModel):
     calendar_id: str
     gates: list[str] = Field(min_length=1, max_length=MAX_GATES)
@@ -84,19 +107,36 @@ class VoyageIn(StrictModel):
 
     @model_validator(mode="after")
     def _shape_ok(self) -> "VoyageIn":
-        n = len(self.gates)
-        if len(set(self.gates)) != n:
-            raise ValueError("航程闸门必须互异")
-        if len(self.legs) != n - 1:
-            raise ValueError("legs 长度必须为闸门数 - 1")
-        if len(self.max_waits) != n:
-            raise ValueError("max_waits 长度必须等于闸门数")
-        if any(x < 0 or x > MAX_TIME for x in self.legs):
-            raise ValueError("航行时长必须在 [0, 10^12] 内")
-        if any(x < 0 or x > MAX_TIME for x in self.max_waits):
-            raise ValueError("最大等待时长必须在 [0, 10^12] 内")
-        if self.search_start >= self.search_end:
-            raise ValueError("出发搜索区间必须满足 start < end")
+        _check_voyage_shape(
+            self.gates,
+            self.legs,
+            self.max_waits,
+            self.search_start,
+            self.search_end,
+        )
+        return self
+
+
+class CompareProbeIn(StrictModel):
+    """双日历探测比较：同一航程在两份既存日历上的可行出发区间差异。"""
+
+    old_calendar_id: str
+    new_calendar_id: str
+    gates: list[str] = Field(min_length=1, max_length=MAX_GATES)
+    legs: list[int] = Field(min_length=0, max_length=MAX_GATES - 1)
+    max_waits: list[int] = Field(min_length=0, max_length=MAX_GATES)
+    search_start: int = Field(ge=0, le=MAX_TIME)
+    search_end: int = Field(ge=0, le=MAX_TIME)
+
+    @model_validator(mode="after")
+    def _shape_ok(self) -> "CompareProbeIn":
+        _check_voyage_shape(
+            self.gates,
+            self.legs,
+            self.max_waits,
+            self.search_start,
+            self.search_end,
+        )
         return self
 
 
